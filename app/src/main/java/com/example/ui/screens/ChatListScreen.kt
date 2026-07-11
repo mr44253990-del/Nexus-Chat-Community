@@ -30,6 +30,11 @@ import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.*
 
+import androidx.compose.ui.graphics.Color
+import com.example.ui.components.GlassBackground
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatListScreen(
@@ -83,61 +88,64 @@ fun ChatListScreen(
         )
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("EBChat", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) },
-                actions = {
-                    IconButton(onClick = onNavigateToSearch) {
-                        Icon(Icons.Default.Search, contentDescription = "Search Users")
+    GlassBackground {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                TopAppBar(
+                    title = { Text("EBChat", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                    actions = {
+                        IconButton(onClick = onNavigateToSearch) {
+                            Icon(Icons.Default.Search, contentDescription = "Search Users")
+                        }
+                        IconButton(onClick = onNavigateToProfile) {
+                            Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        }
                     }
-                    IconButton(onClick = onNavigateToProfile) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                )
+            },
+            floatingActionButton = {
+                Column(horizontalAlignment = Alignment.End) {
+                    SmallFloatingActionButton(
+                        onClick = { showCreateGroupDialog = true },
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f),
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    ) {
+                        Icon(Icons.Default.GroupAdd, contentDescription = "New Group")
                     }
-                }
-            )
-        },
-        floatingActionButton = {
-            Column(horizontalAlignment = Alignment.End) {
-                SmallFloatingActionButton(
-                    onClick = { showCreateGroupDialog = true },
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                ) {
-                    Icon(Icons.Default.GroupAdd, contentDescription = "New Group")
-                }
-                FloatingActionButton(
-                    onClick = onNavigateToSearch,
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "New Chat")
+                    FloatingActionButton(
+                        onClick = onNavigateToSearch,
+                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "New Chat")
+                    }
                 }
             }
-        }
-    ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
-                .padding(paddingValues)
-        ) {
-            if (chats.isEmpty()) {
-                Text(
-                    text = "No chats yet. Search for users to start chatting!",
-                    modifier = Modifier.align(Alignment.Center),
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
-                )
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(chats) { chat ->
-                        ChatListItem(
-                            chat = chat,
-                            onClick = { name -> onNavigateToChat(chat.id, name) }
-                        )
+        ) { paddingValues ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+            ) {
+                if (chats.isEmpty()) {
+                    Text(
+                        text = "No chats yet. Search for users to start chatting!",
+                        modifier = Modifier.align(Alignment.Center),
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(chats) { chat ->
+                            ChatListItem(
+                                chat = chat,
+                                onClick = { name -> onNavigateToChat(chat.id, name) }
+                            )
+                        }
                     }
                 }
             }
@@ -150,6 +158,7 @@ fun ChatListItem(chat: Chat, onClick: (String) -> Unit) {
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
     var chatName by remember { mutableStateOf(chat.groupName ?: "Loading...") }
+    var profilePic by remember { mutableStateOf("") }
     val timeString = remember(chat.lastMessageTime) {
         val format = SimpleDateFormat("hh:mm a", Locale.getDefault())
         if (chat.lastMessageTime > 0) format.format(Date(chat.lastMessageTime)) else ""
@@ -162,6 +171,7 @@ fun ChatListItem(chat: Chat, onClick: (String) -> Unit) {
                 try {
                     val userDoc = db.collection("users").document(otherUserId).get().await()
                     chatName = userDoc.getString("name") ?: "Unknown User"
+                    profilePic = userDoc.getString("profilePicture") ?: ""
                 } catch (e: Exception) {
                     chatName = "Unknown User"
                 }
@@ -181,12 +191,21 @@ fun ChatListItem(chat: Chat, onClick: (String) -> Unit) {
             color = if (chat.isGroup) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.primaryContainer,
             modifier = Modifier.size(56.dp)
         ) {
-            Icon(
-                painter = rememberVectorPainter(image = if (chat.isGroup) Icons.Default.GroupAdd else Icons.Default.Person),
-                contentDescription = null,
-                modifier = Modifier.padding(12.dp),
-                tint = if (chat.isGroup) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onPrimaryContainer
-            )
+            if (profilePic.isNotBlank() && !chat.isGroup) {
+                AsyncImage(
+                    model = profilePic,
+                    contentDescription = "Profile Picture",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Icon(
+                    painter = rememberVectorPainter(image = if (chat.isGroup) Icons.Default.GroupAdd else Icons.Default.Person),
+                    contentDescription = null,
+                    modifier = Modifier.padding(12.dp),
+                    tint = if (chat.isGroup) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
         }
         
         Spacer(modifier = Modifier.width(16.dp))

@@ -10,7 +10,8 @@ object StorageRepository {
 
     suspend fun uploadProfilePicture(uid: String, uri: Uri): Result<String> {
         return try {
-            val ref = storage.reference.child("profile_pictures/$uid.jpg")
+            val fileName = "profile_pictures/${uid}_${System.currentTimeMillis()}.jpg"
+            val ref = storage.reference.child(fileName)
             ref.putFile(uri).await()
             val url = ref.downloadUrl.await().toString()
             Result.success(url)

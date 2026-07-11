@@ -35,6 +35,7 @@ import com.example.data.ChatRepository
 import com.example.data.PresenceRepository
 import com.example.data.StorageRepository
 import com.example.models.Message
+import com.example.ui.components.GlassBackground
 import com.example.utils.AudioRecorder
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.launch
@@ -85,31 +86,33 @@ fun ChatScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { 
-                    Column {
-                        Text(chatName, fontWeight = FontWeight.Bold)
-                        if (isSomeoneTyping) {
-                            Text("typing...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+    GlassBackground {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                TopAppBar(
+                    title = { 
+                        Column {
+                            Text(chatName, fontWeight = FontWeight.Bold)
+                            if (isSomeoneTyping) {
+                                Text("typing...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                    navigationIcon = {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            )
-        }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
-                .padding(paddingValues)
-        ) {
+                )
+            }
+        ) { paddingValues ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+            ) {
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
@@ -183,6 +186,7 @@ fun ChatScreen(
             }
         }
     }
+}
 }
 
 @OptIn(ExperimentalFoundationApi::class)
