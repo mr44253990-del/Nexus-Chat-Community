@@ -164,17 +164,18 @@ fun ChatListItem(chat: Chat, onClick: (String) -> Unit) {
         if (chat.lastMessageTime > 0) format.format(Date(chat.lastMessageTime)) else ""
     }
 
-    LaunchedEffect(chat) {
+    LaunchedEffect(chat.id) {
         if (!chat.isGroup) {
             val otherUserId = chat.participantIds.firstOrNull { it != auth.currentUser?.uid }
             if (otherUserId != null) {
-                try {
-                    val userDoc = db.collection("users").document(otherUserId).get().await()
-                    chatName = userDoc.getString("name") ?: "Unknown User"
-                    profilePic = userDoc.getString("profilePicture") ?: ""
-                } catch (e: Exception) {
-                    chatName = "Unknown User"
-                }
+                db.collection("users").document(otherUserId)
+                    .addSnapshotListener { snapshot, e ->
+                        if (e != null) return@addSnapshotListener
+                        if (snapshot != null && snapshot.exists()) {
+                            chatName = snapshot.getString("name") ?: "Unknown User"
+                            profilePic = snapshot.getString("profilePicture") ?: ""
+                        }
+                    }
             }
         }
     }

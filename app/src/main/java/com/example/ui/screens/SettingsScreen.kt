@@ -41,11 +41,13 @@ fun SettingsScreen(
     LaunchedEffect(Unit) {
         val uid = auth.currentUser?.uid
         if (uid != null) {
-            try {
-                val doc = db.collection("users").document(uid).get().await()
-                user = doc.toObject(User::class.java)
-            } catch (e: Exception) {
-                // handle error
+            db.collection("users").document(uid).addSnapshotListener { snapshot, e ->
+                if (e != null) {
+                    return@addSnapshotListener
+                }
+                if (snapshot != null && snapshot.exists()) {
+                    user = snapshot.toObject(User::class.java)
+                }
             }
         }
     }
