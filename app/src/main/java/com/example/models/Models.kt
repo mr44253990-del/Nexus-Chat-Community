@@ -17,7 +17,10 @@ data class Message(
     val text: String = "",
     val timestamp: Long = 0L,
     val isRead: Boolean = false,
-    val isReaction: String? = null,
+    val isEdited: Boolean = false,
+    val replyToId: String? = null,
+    val replyToText: String? = null,
+    val reactions: Map<String, String> = emptyMap(), // userId -> emoji
     val type: String = "text",
     val mediaUrl: String? = null
 )
@@ -33,4 +36,14 @@ data class Chat(
     val lastMessage: String = "",
     val lastMessageTime: Long = 0L,
     val typingUsers: Map<String, Boolean> = emptyMap()
+)
+
+data class Story(
+    val id: String = "",
+    val userId: String = "",
+    val userName: String = "",
+    val userProfilePic: String = "",
+    val imageUrl: String = "",
+    val timestamp: Long = 0L,
+    val expiresAt: Long = 0L
 )

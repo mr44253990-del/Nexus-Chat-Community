@@ -5,23 +5,45 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import com.example.utils.PreferenceManager
 import com.example.ui.screens.*
 
 @Composable
-fun AppNavigation() {
+fun AppNavigation(onThemeChange: (Boolean) -> Unit) {
     val navController = rememberNavController()
-    
+    val context = LocalContext.current
+    val preferenceManager = remember { PreferenceManager(context) }
+
     NavHost(navController = navController, startDestination = SplashRoute) {
         composable<SplashRoute> {
             SplashScreen(
                 onNavigateToLogin = {
-                    navController.navigate(LoginRoute) {
-                        popUpTo(SplashRoute) { inclusive = true }
+                    if (preferenceManager.isFirstLaunch) {
+                        navController.navigate(OnboardingRoute) {
+                            popUpTo(SplashRoute) { inclusive = true }
+                        }
+                    } else {
+                        navController.navigate(LoginRoute) {
+                            popUpTo(SplashRoute) { inclusive = true }
+                        }
                     }
                 },
                 onNavigateToHome = {
                     navController.navigate(ChatListRoute) {
                         popUpTo(SplashRoute) { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        composable<OnboardingRoute> {
+            OnboardingScreen(
+                onFinished = {
+                    preferenceManager.isFirstLaunch = false
+                    navController.navigate(LoginRoute) {
+                        popUpTo(OnboardingRoute) { inclusive = true }
                     }
                 }
             )
@@ -103,6 +125,7 @@ fun AppNavigation() {
             SettingsScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToEditProfile = { navController.navigate(ProfileRoute) },
+                onThemeChange = onThemeChange,
                 onLogoutSuccess = {
                     navController.navigate(LoginRoute) {
                         popUpTo(0) { inclusive = true }

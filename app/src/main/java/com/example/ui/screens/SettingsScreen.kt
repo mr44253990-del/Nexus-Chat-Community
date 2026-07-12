@@ -26,14 +26,21 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
 
+import androidx.compose.ui.platform.LocalContext
+import com.example.utils.PreferenceManager
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
     onNavigateToEditProfile: () -> Unit,
+    onThemeChange: (Boolean) -> Unit,
     onLogoutSuccess: () -> Unit
 ) {
     val authRepository = remember { AuthRepository() }
+    val context = LocalContext.current
+    val preferenceManager = remember { PreferenceManager(context) }
+    var isDarkMode by remember { mutableStateOf<Boolean>(preferenceManager.isDarkMode) }
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
     var user by remember { mutableStateOf<User?>(null) }
@@ -118,6 +125,29 @@ fun SettingsScreen(
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Dark Mode", style = MaterialTheme.typography.titleMedium)
+                        Switch(
+                            checked = isDarkMode,
+                            onCheckedChange = { 
+                                isDarkMode = it
+                                onThemeChange(it)
+                            }
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
                 Button(
                     onClick = onNavigateToEditProfile,
                     modifier = Modifier.fillMaxWidth().height(50.dp),
@@ -156,6 +186,6 @@ fun SettingsScreen(
             }
             Spacer(modifier = Modifier.height(16.dp))
         }
+        }
     }
-}
 }

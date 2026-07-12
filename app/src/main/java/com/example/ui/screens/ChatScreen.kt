@@ -19,6 +19,11 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
+import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,7 +48,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 import androidx.core.net.toUri
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(
     chatId: String,
@@ -51,6 +56,9 @@ fun ChatScreen(
     onNavigateBack: () -> Unit
 ) {
     var messageText by remember { mutableStateOf("") }
+    var replyingTo by remember { mutableStateOf<Message?>(null) }
+    var editingMessage by remember { mutableStateOf<Message?>(null) }
+    
     val chatRepository = remember { ChatRepository() }
     val auth = FirebaseAuth.getInstance()
     val currentUserId = auth.currentUser?.uid ?: ""
@@ -119,8 +127,62 @@ fun ChatScreen(
                     .padding(horizontal = 16.dp),
                 reverseLayout = true
             ) {
-                items(messages.reversed()) { message ->
-                    MessageBubble(message, currentUserId, chatId)
+                items(messages.reversed(), key = { it.id }) { message ->
+                    MessageBubble(
+                        message = message,
+                        currentUserId = currentUserId,
+                        chatId = chatId,
+                        onReply = { replyingTo = it },
+                        onEdit = { 
+                            editingMessage = it
+                            messageText = it.text
+                        }
+                    )
+                }
+            }
+
+            if (replyingTo != null) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Replying to", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                            Text(replyingTo!!.text, maxLines = 1, style = MaterialTheme.typography.bodySmall)
+                        }
+                        IconButton(onClick = { replyingTo = null }) {
+                            Icon(androidx.compose.material.icons.Icons.Default.Close, contentDescription = "Cancel")
+                        }
+                    }
+                }
+            }
+
+            if (editingMessage != null) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Editing message", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                            Text(editingMessage!!.text, maxLines = 1, style = MaterialTheme.typography.bodySmall)
+                        }
+                        IconButton(onClick = { 
+                            editingMessage = null
+                            messageText = ""
+                        }) {
+                            Icon(androidx.compose.material.icons.Icons.Default.Close, contentDescription = "Cancel")
+                        }
+                    }
                 }
             }
             
@@ -152,15 +214,18 @@ fun ChatScreen(
                                         if (hasRecordPermission) {
                                             isRecording = true
                                             audioRecorder.startRecording(chatId)
-                                            tryAwaitRelease()
-                                            isRecording = false
-                                            audioRecorder.stopRecording()
-                                            val file = audioRecorder.getAudioFile()
-                                            if (file != null && file.exists()) {
-                                                coroutineScope.launch {
-                                                    val uploadResult = StorageRepository.uploadVoiceMessage(chatId, file.toUri())
-                                                    if (uploadResult.isSuccess) {
-                                                        chatRepository.sendMessage(chatId, "", type = "voice", mediaUrl = uploadResult.getOrNull())
+                                            try {
+                                                awaitRelease()
+                                            } finally {
+                                                isRecording = false
+                                                audioRecorder.stopRecording()
+                                                val file = audioRecorder.getAudioFile()
+                                                if (file != null && file.exists()) {
+                                                    coroutineScope.launch {
+                                                        val uploadResult = StorageRepository.uploadVoiceMessage(chatId, file.toUri())
+                                                        if (uploadResult.isSuccess) {
+                                                            chatRepository.sendMessage(chatId, "", type = "voice", mediaUrl = uploadResult.getOrNull())
+                                                        }
                                                     }
                                                 }
                                             }
@@ -168,9 +233,22 @@ fun ChatScreen(
                                             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                         }
                                     } else {
-                                        // Tap to send text
-                                        chatRepository.sendMessage(chatId, messageText)
-                                        messageText = ""
+                                        if (editingMessage != null) {
+                                            coroutineScope.launch {
+                                                chatRepository.editMessage(chatId, editingMessage!!.id, messageText)
+                                                editingMessage = null
+                                                messageText = ""
+                                            }
+                                        } else {
+                                            chatRepository.sendMessage(
+                                                chatId, 
+                                                messageText, 
+                                                replyToId = replyingTo?.id, 
+                                                replyToText = replyingTo?.text
+                                            )
+                                            messageText = ""
+                                            replyingTo = null
+                                        }
                                     }
                                 }
                             )
@@ -189,9 +267,15 @@ fun ChatScreen(
 }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun MessageBubble(message: Message, currentUserId: String, chatId: String) {
+fun MessageBubble(
+    message: Message, 
+    currentUserId: String, 
+    chatId: String,
+    onReply: (Message) -> Unit,
+    onEdit: (Message) -> Unit
+) {
     val isFromMe = message.senderId == currentUserId
     val alignment = if (isFromMe) Alignment.CenterEnd else Alignment.CenterStart
     val backgroundColor = if (isFromMe) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
@@ -203,29 +287,67 @@ fun MessageBubble(message: Message, currentUserId: String, chatId: String) {
     
     val context = LocalContext.current
     var isPlaying by remember { mutableStateOf(false) }
-    var showOptionsDialog by remember { mutableStateOf(false) }
+    var showOptionsSheet by remember { mutableStateOf(false) }
     val chatRepository = remember { ChatRepository() }
     val coroutineScope = rememberCoroutineScope()
 
-    if (showOptionsDialog && isFromMe) {
-        AlertDialog(
-            onDismissRequest = { showOptionsDialog = false },
-            title = { Text("Message Options") },
-            text = { Text("Do you want to delete this message?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showOptionsDialog = false
-                    coroutineScope.launch {
-                        chatRepository.deleteMessage(chatId, message.id)
+    if (showOptionsSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showOptionsSheet = false }
+        ) {
+            Column(modifier = Modifier.padding(16.dp).padding(bottom = 32.dp)) {
+                Text("Message Actions", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                val emojis = listOf("❤️", "😂", "😮", "😢", "🙏", "👍")
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    emojis.forEach { emoji ->
+                        Text(
+                            text = emoji,
+                            fontSize = 24.sp,
+                            modifier = Modifier.clickable {
+                                coroutineScope.launch {
+                                    chatRepository.reactToMessage(chatId, message.id, emoji)
+                                    showOptionsSheet = false
+                                }
+                            }.padding(8.dp)
+                        )
                     }
-                }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { showOptionsDialog = false }) { Text("Cancel") }
+                
+                HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+                
+                ListItem(
+                    headlineContent = { Text("Reply") },
+                    leadingContent = { Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.Reply, null) },
+                    modifier = Modifier.clickable { 
+                        onReply(message)
+                        showOptionsSheet = false
+                    }
+                )
+                
+                if (isFromMe) {
+                    ListItem(
+                        headlineContent = { Text("Edit") },
+                        leadingContent = { Icon(androidx.compose.material.icons.Icons.Default.Edit, null) },
+                        modifier = Modifier.clickable { 
+                            onEdit(message)
+                            showOptionsSheet = false
+                        }
+                    )
+                    ListItem(
+                        headlineContent = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                        leadingContent = { Icon(androidx.compose.material.icons.Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                        modifier = Modifier.clickable { 
+                            coroutineScope.launch {
+                                chatRepository.deleteMessage(chatId, message.id)
+                                showOptionsSheet = false
+                            }
+                        }
+                    )
+                }
             }
-        )
+        }
     }
 
     Box(
@@ -237,6 +359,21 @@ fun MessageBubble(message: Message, currentUserId: String, chatId: String) {
         Column(
             horizontalAlignment = if (isFromMe) Alignment.End else Alignment.Start
         ) {
+            if (message.replyToText != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.padding(bottom = 2.dp)
+                ) {
+                    Text(
+                        text = message.replyToText,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1
+                    )
+                }
+            }
+            
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(
@@ -249,42 +386,70 @@ fun MessageBubble(message: Message, currentUserId: String, chatId: String) {
                     .combinedClickable(
                         onClick = {},
                         onLongClick = {
-                            if (isFromMe) showOptionsDialog = true
+                            showOptionsSheet = true
                         }
                     )
                     .padding(12.dp)
             ) {
-                if (message.type == "voice" && message.mediaUrl != null) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(
-                            onClick = {
-                                if (!isPlaying) {
-                                    isPlaying = true
-                                    val mediaPlayer = MediaPlayer().apply {
-                                        setDataSource(message.mediaUrl)
-                                        prepareAsync()
-                                        setOnPreparedListener { start() }
-                                        setOnCompletionListener { 
-                                            isPlaying = false
-                                            release()
+                Column {
+                    if (message.type == "voice" && message.mediaUrl != null) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = {
+                                    if (!isPlaying) {
+                                        isPlaying = true
+                                        MediaPlayer().apply {
+                                            setDataSource(message.mediaUrl)
+                                            prepareAsync()
+                                            setOnPreparedListener { start() }
+                                            setOnCompletionListener { 
+                                                isPlaying = false
+                                                release()
+                                            }
                                         }
                                     }
-                                }
-                            },
-                            modifier = Modifier.size(32.dp).background(MaterialTheme.colorScheme.primary, CircleShape)
-                        ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = MaterialTheme.colorScheme.onPrimary)
+                                },
+                                modifier = Modifier.size(32.dp).background(MaterialTheme.colorScheme.primary, CircleShape)
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = MaterialTheme.colorScheme.onPrimary)
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Voice Message", color = textColor)
                         }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Voice Message", color = textColor)
+                    } else {
+                        Text(
+                            text = message.text,
+                            color = textColor
+                        )
                     }
-                } else {
-                    Text(
-                        text = message.text,
-                        color = textColor
-                    )
+                    
+                    if (message.isEdited) {
+                        Text(
+                            "edited",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = textColor.copy(alpha = 0.6f),
+                            modifier = Modifier.align(Alignment.End)
+                        )
+                    }
                 }
             }
+            
+            if (message.reactions.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .padding(top = 2.dp)
+                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    message.reactions.values.distinct().forEach { emoji ->
+                        Text(emoji, fontSize = 12.sp)
+                    }
+                    if (message.reactions.size > 1) {
+                        Text("${message.reactions.size}", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 2.dp))
+                    }
+                }
+            }
+            
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = timeString,

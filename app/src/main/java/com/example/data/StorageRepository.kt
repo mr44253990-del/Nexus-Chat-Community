@@ -31,4 +31,15 @@ object StorageRepository {
             Result.failure(e)
         }
     }
+
+    suspend fun uploadFile(path: String, uri: Uri): Result<String> {
+        return try {
+            val ref = storage.reference.child(path)
+            ref.putFile(uri).await()
+            val url = ref.downloadUrl.await().toString()
+            Result.success(url)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 }

@@ -5,6 +5,7 @@ import com.example.models.Message
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -14,6 +15,7 @@ class ChatRepository {
     private val db = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
     private val database = com.google.firebase.database.FirebaseDatabase.getInstance()
+    private val coroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     fun getChats(): Flow<List<Chat>> = callbackFlow {
         val uid = auth.currentUser?.uid ?: return@callbackFlow
@@ -94,7 +96,7 @@ class ChatRepository {
         return newChatRef.id
     }
     
-    fun sendMessage(chatId: String, text: String, type: String = "text", mediaUrl: String? = null) {
+    fun sendMessage(chatId: String, text: String, type: String = "text", mediaUrl: String? = null, replyToId: String? = null, replyToText: String? = null) {
         val uid = auth.currentUser?.uid ?: return
         val messageRef = db.collection("chats").document(chatId).collection("messages").document()
         val message = Message(
@@ -103,16 +105,75 @@ class ChatRepository {
             text = text,
             timestamp = System.currentTimeMillis(),
             type = type,
-            mediaUrl = mediaUrl
+            mediaUrl = mediaUrl,
+            replyToId = replyToId,
+            replyToText = replyToText
         )
         
         db.runBatch { batch ->
             batch.set(messageRef, message)
-            val lastMsgText = if (type == "voice") "🎙️ Voice message" else if (type == "image") "📷 Image" else text
+            val lastMsgText = when (type) {
+                "voice" -> "🎙️ Voice message"
+                "image" -> "📷 Image"
+                else -> text
+            }
             batch.update(db.collection("chats").document(chatId), mapOf(
                 "lastMessage" to lastMsgText,
                 "lastMessageTime" to message.timestamp
             ))
+        }
+
+        // Trigger notifications (This typically requires a backend Cloud Function for security)
+        // For demonstration, we attempt to find the recipient's token and log it.
+        coroutineScope.launch {
+            try {
+                val chatDoc = db.collection("chats").document(chatId).get().await()
+                val participantIds = chatDoc.get("participantIds") as? List<String> ?: emptyList()
+                val recipientIds = participantIds.filter { it != uid }
+                
+                for (recipientId in recipientIds) {
+                    val userDoc = db.collection("users").document(recipientId).get().await()
+                    val token = userDoc.getString("fcmToken")
+                    if (!token.isNullOrBlank()) {
+                        // In a real app, you'd call your server or a Cloud Function here to send the FCM message.
+                        // sendingNotification(token, "New Message", text)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    suspend fun editMessage(chatId: String, messageId: String, newText: String) {
+        try {
+            db.collection("chats").document(chatId).collection("messages").document(messageId)
+                .update(mapOf(
+                    "text" to newText,
+                    "isEdited" to true
+                )).await()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    suspend fun reactToMessage(chatId: String, messageId: String, emoji: String) {
+        val uid = auth.currentUser?.uid ?: return
+        try {
+            val docRef = db.collection("chats").document(chatId).collection("messages").document(messageId)
+            db.runTransaction { transaction ->
+                val snapshot = transaction.get(docRef)
+                val currentReactions = snapshot.get("reactions") as? Map<String, String> ?: emptyMap()
+                val updatedReactions = currentReactions.toMutableMap()
+                if (updatedReactions[uid] == emoji) {
+                    updatedReactions.remove(uid)
+                } else {
+                    updatedReactions[uid] = emoji
+                }
+                transaction.update(docRef, "reactions", updatedReactions)
+            }.await()
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
